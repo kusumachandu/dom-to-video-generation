@@ -1,11 +1,10 @@
-import Head from 'next/head'
-import Image from 'next/image'
-import styles from '../styles/Home.module.css'
+import Card from './components/Card'
 
 export default function Home() {
+  const iterations = Math.floor(Math.random() * 10) + 40;
   return (
     <>
-      <h1>Home Page</h1>
+      <Card iterations={iterations} />
     </>
   )
 }
