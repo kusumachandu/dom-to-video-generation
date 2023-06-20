@@ -1,0 +1,4 @@
+file 'frame_0.png'
+file 'frame_1.png'
+file 'frame_2.png'
+file 'frame_3.png'
