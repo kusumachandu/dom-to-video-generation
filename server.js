@@ -10,7 +10,7 @@ app.use(fileUpload());
 app.use(express.json());
 app.use(cors());
 
-const ffmpeg = createFFmpeg({ log: true });
+const ffmpeg = createFFmpeg({ log: true, corePath: '/node_modules/@ffmpeg/core/dist/wasm-core.js' });
 const uploadsDir = path.join(__dirname, 'public', 'uploads');
 fs.mkdirSync(uploadsDir, { recursive: true });
 
@@ -34,7 +34,7 @@ app.post('/upload', (req, res) => {
   });
 });
 
-server.post('/upload-concat', (req, res) => {
+app.post('/upload-concat', (req, res) => {
   const concatFilePath = path.join(uploadsDir, 'concat-txt');
   const concatFileContent = req.body.concatFileContent;
   console.log(concatFileContent);
@@ -51,9 +51,10 @@ server.post('/upload-concat', (req, res) => {
 });
 
 
-app.post('/export-video', async (req, res) => {
+app.get('/export-video', async (req, res) => {
   try {
-    const tempFileNames = req.body.tempFileNames;
+    const tempFileNames = JSON.parse(req.query.tempFileNames);
+    console.log(tempFileNames);
 
     // Load the concat file
     const concatFilePath = path.join(uploadsDir, 'concat.txt');
@@ -65,6 +66,22 @@ app.post('/export-video', async (req, res) => {
     // Run the ffmpeg command to concatenate frames into a video
     await ffmpeg.run('-f', 'concat', '-safe', '0', '-i', concatFilePath, '-c', 'copy', `${uploadsDir}/output.mp4`);
 
+    console.log('output.mp4');
+    res.download(`${uploadsDir}/output.mp4`, 'output.mp4', (err) => {
+      if (err) {
+        console.error('Error downloading video:', err);
+        return res.status(500).send('Error downloading video.');
+      }
+
+      // Clean up the temporary files
+      for (const fileName of tempFileNames) {
+        const filePath = path.join(uploadsDir, fileName);
+        fs.unlinkSync(filePath);
+      }
+
+      fs.unlinkSync(concatFilePath);
+      fs.unlinkSync(`${uploadsDir}/output.mp4`);
+    });
     res.send('output.mp4');
   } catch (error) {
     console.error('Error exporting video:', error);
