@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import domtoimage from "dom-to-image";
-import { createFFmpeg, fetchFile } from "@ffmpeg/ffmpeg";
-// import { createFFmpegCore } from "/ffmpeg-core.js";
+import { createConcatFile, deleteFile, exportVideo, uploadFile } from "../../services";
 
 interface CardProps {
   iterations: number;
@@ -13,6 +12,22 @@ const Card: React.FC<CardProps> = ({ iterations }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   async function captureFullContent(element: any) {
+    const options = {
+      width: element.offsetWidth,
+      height: element.scrollHeight,
+      style: {
+        transform: "scale(1)",
+        transformOrigin: "top left",
+        width: `${element.offsetWidth}px`,
+        height: `${element.scrollHeight}px`,
+      },
+    };
+
+    const dataUrl = await domtoimage.toPng(element, options);
+    return dataUrl;
+  }
+
+  async function captureVideoContent(element: any) {
     const options = {
       width: element.offsetWidth,
       height: element.scrollHeight,
@@ -73,33 +88,38 @@ const Card: React.FC<CardProps> = ({ iterations }) => {
       playgroundRef.scrollTop = scrollTop;
       await new Promise((resolve) => setTimeout(resolve, 100)); // Wait for the scroll animation
 
-      const dataUrl = await captureFullContent(playgroundRef);
+      const dataUrl = await captureVideoContent(playgroundRef);
       frames.push(dataUrl);
 
       scrollTop += sectionHeight / 4; // Scroll 1/4th of the section height for the next frame
     }
 
+    console.log(frames);
+
     const tempFileNames = [];
 
     for (let i = 0; i < frames.length; i++) {
       const frameDataUrl = frames[i];
-      const formData = new FormData();
-
+      
       const imageBlob = await fetch(frameDataUrl).then((response) =>
-        response.blob()
+      response.blob()
       );
+      console.log(imageBlob);
       const imageFileName = `frame_${i}.png`;
+      console.log(imageFileName);
+      const formData = new FormData();
       formData.append("file", imageBlob, imageFileName);
 
+      if(formData === undefined) {
+        console.log('form data is undefined')
+      }
+
       try {
-        const response = await fetch("http://localhost:3001/upload", {
-          method: "POST",
-          body: formData,
-        });
-        const fileName = await response.text();
+        const fileName = await uploadFile(formData);
         tempFileNames.push(fileName);
       } catch (error: any) {
         console.log(error.message);
+        setExportingVideo(false);
       }
     }
 
@@ -110,55 +130,16 @@ const Card: React.FC<CardProps> = ({ iterations }) => {
     formData.append("concatFileContent", concatFileContent);
 
     try {
-      const response = await fetch("http://localhost:3001/upload-concat", {
-        method: "POST",
-        body: formData,
-      });
-
-      if (response.ok) {
-        console.log("Concat file uploaded successfully");
-      } else {
-        console.error(
-          "Error uploading concat file:",
-          response.status,
-          response.statusText
-        );
-      }
+      await createConcatFile(concatFileContent);
+      await exportVideo(tempFileNames);
     } catch (error: any) {
       console.log(error.message);
+      setExportingVideo(false);
     }
 
-    // getting the response from the server
-    try {
-      const response = await fetch("/export-video", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ tempFileNames }),
-      });
-
-      if (response.ok) {
-        const outputFileName = await response.text();
-        const downloadLink = document.createElement("a");
-        downloadLink.href = `http://localhost:3001/uploads/${outputFileName}`;
-        downloadLink.download = outputFileName;
-        downloadLink.click();
-      } else {
-        console.error(
-          "Error exporting video:",
-          response.status,
-          response.statusText
-        );
-      }
-    } catch (error: any) {
-      console.log(error.message);
-    }
 
     for (let i = 0; i < tempFileNames.length; i++) {
-      await fetch(`http://localhost:3001/delete?file=${tempFileNames[i]}`, {
-        method: "DELETE",
-      });
+      await deleteFile(tempFileNames[i]);
     }
 
     setExportingVideo(false);
