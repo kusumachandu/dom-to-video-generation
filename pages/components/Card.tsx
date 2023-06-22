@@ -1,15 +1,37 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import domtoimage from "dom-to-image";
-import { createConcatFile, deleteFile, exportVideo, uploadFile } from "../../services";
 
 interface CardProps {
   iterations: number;
 }
 
+const array = [
+  {
+    name: "hello, i am chandu",
+  },
+  {
+    name: "hello, i am jafin",
+  },
+];
+
 const Card: React.FC<CardProps> = ({ iterations }) => {
   const [exporting, setExporting] = useState(false);
-  const [exportingVideo, setExportingVideo] = useState(false);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [videoExporting, setVideoExporting] = useState(false);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  const [windowHeight, setWindowHeight] = useState<number>();
+  const [windowWidth, setWindowWidth] = useState<number>();
+
+  useEffect(() => {
+    if (globalThis?.window?.innerWidth) {
+      setWindowWidth(window.innerWidth);
+    }
+
+    if (globalThis?.window?.innerHeight) {
+      setWindowHeight(window.innerHeight);
+    }
+  }, []);
 
   async function captureFullContent(element: any) {
     const options = {
@@ -27,26 +49,34 @@ const Card: React.FC<CardProps> = ({ iterations }) => {
     return dataUrl;
   }
 
-  async function captureVideoContent(element: any) {
+  async function captureVideoContent(element: any, screenHeight: any) {
+    const scaleFactor = 1; // Adjust the scale factor as needed for higher resolution
     const options = {
       width: element.offsetWidth,
       height: element.scrollHeight,
       style: {
-        transform: "scale(1)",
+        transform: `scale(${scaleFactor})`,
         transformOrigin: "top left",
-        width: `${element.offsetWidth}px`,
-        height: `${element.scrollHeight}px`,
+        width: `${element.offsetWidth! * scaleFactor}px`,
+        height: `${element.scrollHeight * scaleFactor}px`,
+        position: "absolute",
+        top: "0",
+        left: "0",
+        overflow: "hidden",
+        border: "1px solid green",
       },
     };
 
+    console.log("options", options);
     const dataUrl = await domtoimage.toPng(element, options);
+    console.log(dataUrl);
     return dataUrl;
   }
 
   async function handleExport() {
     setExporting(true);
 
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined") return <></>;
 
     const playgroundRef = document.getElementById("playground");
     if (!playgroundRef) return;
@@ -66,93 +96,99 @@ const Card: React.FC<CardProps> = ({ iterations }) => {
     }
   }
 
-  async function handleExportVideo() {
-    setExportingVideo(true);
+  async function handleVideoExport() {
+    setVideoExporting(true);
 
-    const playgroundRef = document.getElementById(
-      "playground"
-    ) as HTMLDivElement;
+    if (typeof window === "undefined") return;
+
+    const playgroundRef = document.getElementById("playground");
     if (!playgroundRef) return;
 
-    const sectionHeight = playgroundRef.offsetHeight;
-    const totalHeight = playgroundRef.scrollHeight;
-
-    const videoWidth = playgroundRef.offsetWidth;
-    const videoHeight = totalHeight;
-
-    const frames = [];
-
-    let scrollTop = 0;
-
-    while (scrollTop < totalHeight) {
-      playgroundRef.scrollTop = scrollTop;
-      await new Promise((resolve) => setTimeout(resolve, 100)); // Wait for the scroll animation
-
-      const dataUrl = await captureVideoContent(playgroundRef);
-      frames.push(dataUrl);
-
-      scrollTop += sectionHeight / 4; // Scroll 1/4th of the section height for the next frame
-    }
-
-    console.log(frames);
-
-    const tempFileNames = [];
-
-    for (let i = 0; i < frames.length; i++) {
-      const frameDataUrl = frames[i];
-      
-      const imageBlob = await fetch(frameDataUrl).then((response) =>
-      response.blob()
-      );
-      console.log(imageBlob);
-      const imageFileName = `frame_${i}.png`;
-      console.log(imageFileName);
-      const formData = new FormData();
-      formData.append("file", imageBlob, imageFileName);
-
-      if(formData === undefined) {
-        console.log('form data is undefined')
-      }
-
-      try {
-        const fileName = await uploadFile(formData);
-        tempFileNames.push(fileName);
-      } catch (error: any) {
-        console.log(error.message);
-        setExportingVideo(false);
-      }
-    }
-
-    const concatFileContent = tempFileNames
-      .map((fileName) => `file '${fileName}'`)
-      .join("\n");
-    const formData = new FormData();
-    formData.append("concatFileContent", concatFileContent);
-
     try {
-      await createConcatFile(concatFileContent);
-      await exportVideo(tempFileNames);
-    } catch (error: any) {
-      console.log(error.message);
-      setExportingVideo(false);
+      const canvas = canvasRef.current;
+      const video = videoRef.current;
+
+      const fps = 30; // Adjust the frames per second as needed
+      const stream = canvas!.captureStream(fps);
+      if (!stream) throw new Error("Failed to capture stream from canvas");
+
+      const videoBitsPerSecond = 5000000;
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: "video/webm; codecs=vp9",
+        videoBitsPerSecond,
+      });
+
+      const chunks: BlobPart[] = [];
+
+      mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(chunks, { type: "video/webm" });
+        const videoURL = URL.createObjectURL(blob);
+        video!.src = videoURL;
+
+        const downloadLink = document.createElement("a");
+        downloadLink.href = video!.src;
+        downloadLink.download = "playground_video.webm";
+
+        downloadLink.click();
+
+        setVideoExporting(false);
+      };
+
+      mediaRecorder.start();
+
+      const duration = 3000; // Duration to record each frame (1 second)
+      const contentHeight = playgroundRef.scrollHeight;
+      const contentWidth = playgroundRef.scrollWidth;
+      const screenHeight = windowHeight!;
+      console.log("content height:", contentHeight);
+      console.log("screen height:", screenHeight);
+
+    //   const scrollStep = Math.ceil(screenHeight / 20); // Number of pixels to scroll in each step
+      let scrollPosition = 0;
+
+      while (scrollPosition  < contentHeight) {
+        playgroundRef.scrollTo({ top: scrollPosition });
+
+        console.log(scrollPosition);
+        const imageURL = await captureVideoContent(playgroundRef, screenHeight);
+
+        const image = new Image();
+        image.src = imageURL;
+
+        image.onload = () => {
+          const context = canvas!.getContext("2d");
+          console.log(context)
+          context?.clearRect(0, 0, canvas!.width, canvas!.height);
+          context?.drawImage(image, 0, -scrollPosition + screenHeight, contentWidth, contentHeight);
+
+          if (mediaRecorder.state === "recording") {
+            mediaRecorder.requestData();
+          }
+        };
+
+        scrollPosition += screenHeight;
+        await new Promise((resolve) => setTimeout(resolve, duration));
+      }
+
+      if (mediaRecorder.state === "recording") {
+        mediaRecorder.stop();
+      }
+    } catch (error) {
+      setVideoExporting(false);
+      console.error("Error exporting video:", error);
     }
-
-
-    for (let i = 0; i < tempFileNames.length; i++) {
-      await deleteFile(tempFileNames[i]);
-    }
-
-    setExportingVideo(false);
   }
+  
 
   const messages = ["Hello", "Hi", "how are you", "i am good"];
   const colors = ["lightblue", "lightgreen"];
-  iterations = Math.floor(Math.random() * 10) + 40; // Random number between 40 and 45
+  iterations = 70;
 
   return (
-    <>
+    <div id="playgrounds">
       <div className="card" id="playground">
-        {[...Array(iterations)].map((_, index) => (
+        {[...Array(iterations), ...array].map((_, index) => (
           <div key={index} className="message py-2 rounded">
             <div
               key={index}
@@ -160,35 +196,53 @@ const Card: React.FC<CardProps> = ({ iterations }) => {
                 index % 2 === 0 ? "message-section" : ""
               }`}
               style={{
-                backgroundColor: colors[index % 2],
+                backgroundColor:
+                  index < 30
+                    ? index == 0
+                      ? "blue"
+                      : colors[index % 2]
+                    : index < 50 ? "yellow"
+                    : "red",
                 alignItems: index % 2 === 0 ? "left" : "right",
                 width: index % 2 === 0 ? "50%" : "50%",
               }}
             >
               {messages[index % 4]}
             </div>
-            <p>why OS</p>
           </div>
         ))}
       </div>
       <button
         className="block p-2 border rounded gap-5 mb-5"
         onClick={handleExport}
-        disabled={exporting || exportingVideo}
+        disabled={exporting}
       >
-        {exporting ? "Exporting..." : "Export"}
+        {exporting ? "Exporting.." : "Export"}
       </button>
       <div>
-        <button
-          className="block p-2 border rounded gap-5 mb-5"
-          onClick={handleExportVideo}
-          // disabled={exporting || exportingVideo}
-        >
-          {exportingVideo ? "Exporting as Video..." : "Export as Video"}
-        </button>
+          <button
+            className="block p-2 border rounded"
+            onClick={handleVideoExport}
+          >
+            {videoExporting ? "Exporting video.." : "Export as video"}
+          </button>
       </div>
-      <video ref={videoRef} controls />
-    </>
+      <canvas
+        ref={canvasRef}
+        style={{ display: "none" }}
+        width={windowWidth}
+        height={windowHeight}
+      />
+      <div className="video-container relative">
+        <video
+          className="scroll-video absolute top-0 left-0"
+          ref={videoRef}
+          style={{ display: "none" }}
+          width={windowWidth}
+          height={windowHeight}
+        />
+      </div>
+    </div>
   );
 };
 
